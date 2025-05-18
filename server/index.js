@@ -1,45 +1,48 @@
 const express = require("express");
 const cors = require("cors");
 const app = express();
-app.use(cors({ origin: "http://localhost:3000", credentials: true }));
+const jwt = require("jsonwebtoken");
+
+app.use(cors({ origin: "http://localhost:5173", credentials: true }));
 app.use(express.json());
 
-const PORT = 4000;
-
-// In-memory store for tab sessions
-const activeTabSessions = {};
+const JWT_SECRET = "your-secret-key";
 
 app.post("/login", (req, res) => {
   const { tabId } = req.body;
-  const token = "FAKE_TOKEN_123"; // replace with JWT in real apps
-
-  // If user already logged in from a different tab, reject or overwrite
-  for (let session in activeTabSessions) {
-    if (activeTabSessions[session] === token && session !== tabId) {
-      return res
-        .status(403)
-        .json({ error: "Already logged in from another tab." });
-    }
+  if (!tabId) {
+    return res.status(400).json({ error: "tabId is required" });
   }
-
-  activeTabSessions[tabId] = token;
-  return res.json({ success: true, token });
+  // Create token with tabId embedded
+  const token = jwt.sign({ userId: 1, tabId }, JWT_SECRET, {
+    expiresIn: "10m",
+  });
+  res.json({ token });
 });
 
 app.get("/protected", (req, res) => {
-  const authHeader = req.headers.authorization;
-  const tabId = req.headers["x-tab-id"];
-
-  if (!authHeader || !tabId) {
-    return res.status(401).json({ error: "Missing token or tab ID" });
-  }
-
+  const authHeader = req.headers.authorization || "";
   const token = authHeader.split(" ")[1];
-  if (activeTabSessions[tabId] !== token) {
-    return res.status(403).json({ error: "Session not valid for this tab" });
+  const requestTabId = req.headers["x-tab-id"];
+
+  if (!token || !requestTabId) {
+    return res
+      .status(401)
+      .json({ error: "Unauthorized - Missing token or tabId" });
   }
 
-  return res.json({ message: "Protected data accessed successfully!" });
+  try {
+    const decoded = jwt.verify(token, JWT_SECRET);
+
+    if (decoded.tabId !== requestTabId) {
+      return res.status(401).json({ error: "Tab ID mismatch - Unauthorized" });
+    }
+
+    // Authorized
+    res.json({ message: `Protected data for tab ${requestTabId}` });
+  } catch (err) {
+    return res.status(401).json({ error: "Invalid or expired token" });
+  }
 });
 
-app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+app.listen(4000, () => console.log("Server started on http://localhost:4000"));
